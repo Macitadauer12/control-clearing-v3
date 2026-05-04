@@ -503,6 +503,68 @@ body { background:var(--bg); color:var(--text); font-size:13.5px; line-height:1.
 }
 .recon-toggle input[type="checkbox"] { accent-color:var(--navy-700); }
 
+/* ============ TOAST NOTIFICATIONS ============ */
+.toast-container {
+  position:fixed; top:18px; right:18px;
+  z-index:9999;
+  display:flex; flex-direction:column;
+  gap:8px;
+  pointer-events:none;
+  max-width:380px;
+}
+.toast {
+  background:white;
+  border:1px solid var(--border);
+  border-left:3px solid var(--blue-500);
+  border-radius:8px;
+  padding:11px 36px 11px 14px;
+  box-shadow:0 8px 24px rgba(15,39,68,0.18);
+  font-size:12px; line-height:1.5;
+  color:var(--text);
+  pointer-events:auto;
+  animation:toastIn 0.22s ease-out;
+  position:relative;
+}
+.toast.toast-error   { border-left-color:var(--danger); }
+.toast.toast-success { border-left-color:var(--success); }
+.toast.toast-warning { border-left-color:#d97706; }
+.toast b { color:var(--navy-900); font-weight:700; }
+.toast .toast-close {
+  position:absolute; top:6px; right:8px;
+  background:transparent; border:none;
+  color:var(--text-muted); font-size:16px;
+  cursor:pointer; line-height:1; padding:2px 4px;
+  border-radius:3px;
+}
+.toast .toast-close:hover { background:var(--bg-alt); color:var(--navy-900); }
+.toast.fade-out { animation:toastOut 0.3s ease-in forwards; }
+@keyframes toastIn {
+  from { transform:translateX(110%); opacity:0; }
+  to   { transform:translateX(0);    opacity:1; }
+}
+@keyframes toastOut {
+  from { transform:translateX(0);    opacity:1; }
+  to   { transform:translateX(110%); opacity:0; }
+}
+
+/* ============ BOTON RESET DE CONCILIACION ============ */
+.recon-actions {
+  display:flex; align-items:center; gap:10px;
+  margin:10px 0 14px;
+  flex-wrap:wrap;
+}
+.btn-reset-recon {
+  background:white; color:var(--danger);
+  border:1px solid #FECACA;
+  padding:7px 14px; border-radius:6px;
+  font-size:11px; font-weight:600;
+  letter-spacing:0.4px; text-transform:uppercase;
+  cursor:pointer;
+  transition:all 0.15s;
+  font-family:inherit;
+}
+.btn-reset-recon:hover { background:#FEE2E2; border-color:var(--danger); transform:translateY(-1px); }
+
 /* ============ CONCILIACION POR COMITENTE: tarjetas y movimientos ============ */
 .especie-block {
   background:white;
@@ -1688,8 +1750,9 @@ table tr:last-child td { border-bottom:none; }
         <div class="item"><span class="label">Descalces</span><span class="value danger" id="reconDescalce">0</span></div>
       </div>
 
-      <div class="recon-toggle">
-        <label><input type="checkbox" id="reconOnlyDiff"> Mostrar solo descalces y diferencias</label>
+      <div class="recon-actions">
+        <label class="recon-toggle" style="display:inline-flex;"><input type="checkbox" id="reconOnlyDiff"> Mostrar solo descalces y diferencias</label>
+        <button type="button" class="btn-reset-recon" id="btnResetRecon" title="Limpia todos los archivos cargados de Conciliaci&oacute;n">&times; Limpiar Conciliaci&oacute;n</button>
       </div>
 
       <div class="full-table">
@@ -1739,6 +1802,7 @@ table tr:last-child td { border-bottom:none; }
       <label><input type="checkbox" id="commIncludeSettle" checked> Usar cuentas SETTLE como fuente de titulos</label>
       <input type="text" id="searchBoxComm" placeholder="Buscar especie o comitente..." style="margin-left:10px; padding:7px 11px; border:1px solid var(--border); border-radius:5px; font-size:12px; min-width:240px;">
       <button class="btn export" id="exportBtnComm">Exportar comitente CSV</button>
+      <button class="btn" id="btnGenSI2" title="Genera el archivo .si2 con las transferencias sugeridas para subir a BYMA">Generar archivo SI2</button>
     </div>
 
     <div id="commEspeciesList"></div>
@@ -2360,13 +2424,13 @@ function saveManualLocal() {
     document.querySelectorAll("#manualBody input").forEach(inp => { o[inp.dataset.k + "_" + inp.dataset.m] = inp.value; });
     o["_fecha"] = document.getElementById("fechaIni").value;
     localStorage.setItem("middle_office_manual", JSON.stringify(o));
-    alert("Valores guardados localmente.");
-  } catch(e) { alert("No se pudo guardar: " + e.message); }
+    notify("<b>Guardado.</b> Saldos a considerar persistidos en el navegador.", "success");
+  } catch(e) { notify("<b>No se pudo guardar:</b> " + e.message, "error"); }
 }
 function loadManualLocal() {
   try {
     const s = localStorage.getItem("middle_office_manual");
-    if (!s) { alert("No hay valores guardados."); return; }
+    if (!s) { notify("No hay valores guardados todav&iacute;a.", "warning"); return; }
     const o = JSON.parse(s);
     document.querySelectorAll("#manualBody input").forEach(inp => {
       const k = inp.dataset.k + "_" + inp.dataset.m;
@@ -2374,7 +2438,7 @@ function loadManualLocal() {
     });
     if (o._fecha) document.getElementById("fechaIni").value = o._fecha;
     if (DATA_INI) renderIni();
-  } catch(e) { alert("No se pudo cargar: " + e.message); }
+  } catch(e) { notify("<b>No se pudo cargar:</b> " + e.message, "error"); }
 }
 function clearManual() {
   document.querySelectorAll("#manualBody input").forEach(inp => inp.value = "");
@@ -3206,6 +3270,58 @@ let RECON_BO    = null;
 let RECON_GAR   = null;
 let RECON_GARBO = null;
 
+/* =========================================================================
+   TOAST NOTIFICATIONS - reemplaza alert() con mensajes elegantes y no-bloqueantes
+   notify(message, type, duration?) -> type: "info" | "success" | "warning" | "error"
+   ========================================================================= */
+function notify(message, type, duration) {
+  type = type || "info";
+  let cont = document.getElementById("toastContainer");
+  if (!cont) {
+    cont = document.createElement("div");
+    cont.id = "toastContainer";
+    cont.className = "toast-container";
+    document.body.appendChild(cont);
+  }
+  const t = document.createElement("div");
+  t.className = "toast toast-" + type;
+  t.innerHTML = String(message || "");
+  const close = document.createElement("button");
+  close.className = "toast-close";
+  close.type = "button";
+  close.innerHTML = "&times;";
+  close.setAttribute("aria-label", "Cerrar notificacion");
+  close.addEventListener("click", function() {
+    t.classList.add("fade-out");
+    setTimeout(function() { try { t.remove(); } catch(e){} }, 280);
+  });
+  t.appendChild(close);
+  cont.appendChild(t);
+  const ttl = duration || (type === "error" ? 6500 : type === "warning" ? 5000 : 3500);
+  setTimeout(function() {
+    if (!t.parentNode) return;
+    t.classList.add("fade-out");
+    setTimeout(function() { try { t.remove(); } catch(e){} }, 280);
+  }, ttl);
+}
+
+/* Wrapper defensivo: corre fn en try/catch y muestra toast si revienta */
+function safeRun(fn, label) {
+  try { return fn(); }
+  catch (e) {
+    notify("<b>" + (label || "Error") + ":</b> " + (e && e.message ? e.message : e), "error");
+    if (window.console) console.error(label || "safeRun", e);
+    return null;
+  }
+}
+
+/* Validacion de extension: aceptamos csv, txt, xlsx, xlsm */
+function _isAllowedFile(file) {
+  if (!file || !file.name) return false;
+  const ext = file.name.split(".").pop().toLowerCase();
+  return ext === "csv" || ext === "txt" || ext === "xlsx" || ext === "xlsm";
+}
+
 function _reconNormHeader(h) {
   return String(h || "").toUpperCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -3271,32 +3387,31 @@ function _reconExtractTicker(raw) {
 }
 function _reconParseNumber(v) {
   if (v == null) return 0;
-  if (typeof v === "number") return v;
-  let s = String(v).trim();
-  if (!s) return 0;
-  const hasDot = s.indexOf(".") >= 0, hasCom = s.indexOf(",") >= 0;
-  if (hasDot && hasCom) {
-    // "1.234,56" -> 1234.56 (AR) o "1,234.56" -> 1234.56 (US)
-    if (s.lastIndexOf(",") > s.lastIndexOf(".")) s = s.replace(/\./g, "").replace(",", ".");
-    else s = s.replace(/,/g, "");
-  } else if (hasCom && !hasDot) {
-    // "1234,56" -> decimal AR
-    s = s.replace(",", ".");
-  } else if (hasDot && !hasCom) {
-    // Solo punto: en formato AR puede ser separador de miles
-    const parts = s.replace(/^-/, "").split(".");
-    const last = parts[parts.length - 1];
-    if (parts.length > 2) {
-      // "12.345.678" -> miles, sacar todos los puntos
-      s = s.replace(/\./g, "");
-    } else if (parts.length === 2 && /^\d{3}$/.test(last) && /^-?\d{1,3}$/.test(parts[0])) {
-      // "1.086" o "12.345" o "123.456" con exactamente 3 digitos despues del punto -> miles AR
-      s = s.replace(".", "");
+  let n;
+  if (typeof v === "number") {
+    n = v;
+  } else {
+    let s = String(v).trim();
+    if (!s) return 0;
+    const hasDot = s.indexOf(".") >= 0, hasCom = s.indexOf(",") >= 0;
+    if (hasDot && hasCom) {
+      if (s.lastIndexOf(",") > s.lastIndexOf(".")) s = s.replace(/\./g, "").replace(",", ".");
+      else s = s.replace(/,/g, "");
+    } else if (hasCom && !hasDot) {
+      s = s.replace(",", ".");
+    } else if (hasDot && !hasCom) {
+      const parts = s.replace(/^-/, "").split(".");
+      const last = parts[parts.length - 1];
+      if (parts.length > 2) s = s.replace(/\./g, "");
+      else if (parts.length === 2 && /^\d{3}$/.test(last) && /^-?\d{1,3}$/.test(parts[0])) s = s.replace(".", "");
     }
-    // else: decimal real ("1.5", "0.001", "1.0860")
+    n = parseFloat(s);
+    if (isNaN(n)) return 0;
   }
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
+  // Limpieza de ruido de punto flotante: si esta a < 1e-6 de un entero, redondear
+  const rnd = Math.round(n);
+  if (Math.abs(n - rnd) < 1e-6) return rnd;
+  return n;
 }
 
 function ingestReconFile(matrix, kind, fileName) {
@@ -3347,10 +3462,12 @@ function ingestReconFile(matrix, kind, fileName) {
 
 async function loadReconFile(file, kind) {
   try {
+    if (!_isAllowedFile(file)) throw new Error("Extension no soportada (usar CSV, TXT, XLSX, XLSM)");
     const matrix = await readFileMatrix(file);
     ingestReconFile(matrix, kind, file.name);
+    notify("<b>" + kind + " cargado:</b> " + file.name, "success");
   } catch (e) {
-    alert("Error cargando archivo " + kind + ": " + e.message);
+    notify("<b>Error cargando " + kind + ":</b> " + e.message, "error");
   }
 }
 
@@ -3430,8 +3547,15 @@ function renderRecon() {
     return Math.abs(b.diff) - Math.abs(a.diff);
   });
 
+  const STATUS_TOOLTIPS = {
+    "ok":       "Las cantidades y garantias matchean exactamente.",
+    "expl":     "Hay diferencia, pero se explica entre cantidad y garantias (compensado o garantia inconsistente).",
+    "descalce": "Diferencia que no se explica por garantia. Revisar.",
+    "solo":     "La especie aparece solamente en una de las fuentes."
+  };
   const tbody = document.querySelector("#reconTable tbody");
   if (tbody) tbody.innerHTML = visible.map(function(r) {
+    const tip = (STATUS_TOOLTIPS[r.cls] || "").replace(/"/g, '&quot;');
     return "<tr>" +
       "<td><code>" + r.code + "</code></td>" +
       "<td>" + (r.ticker || "&mdash;") + "</td>" +
@@ -3440,7 +3564,7 @@ function renderRecon() {
       "<td class=\"num\">" + fmt(r.gQ) + "</td>" +
       "<td class=\"num\">" + fmt(r.gbQ) + "</td>" +
       "<td class=\"num\" style=\"font-weight:700;color:" + (Math.abs(r.diff)<0.0001?"#065F46":"#991B1B") + "\">" + fmt(r.diff) + "</td>" +
-      "<td><span class=\"recon-status " + r.cls + "\">" + r.status + "</span></td>" +
+      "<td><span class=\"recon-status " + r.cls + "\" title=\"" + tip + "\">" + r.status + "</span></td>" +
       "</tr>";
   }).join("");
   const cnt = document.getElementById("reconCount");
@@ -3532,6 +3656,30 @@ function _normComitenteCV(raw) {
   return s;
 }
 
+// Normalizacion universal de comitente: extrae solo el numero
+// Soporta:  "11/170030" (CV)  ->  "170030"
+//           "[170030] Casares, Esteban" (AUNE)  ->  "170030"
+//           "170030" (plano)  ->  "170030"
+//           "70011/10000" (settle)  ->  se mantiene completo para detectar
+function _normComitenteUniversal(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  // Settle accounts: mantener formato completo para deteccion
+  if (_isSettleAccount(s)) return s;
+  // AUNE: "[10021] Name" -> "10021"
+  let m = s.match(/^\[(\d+)\]/);
+  if (m) return m[1];
+  // CV: "11/170030" -> "170030"
+  m = s.match(/^11\/(\d+)/);
+  if (m) return m[1];
+  // Numero solo
+  if (/^\d+$/.test(s)) return s;
+  // "10021 - Name" o "10021 Name" -> "10021"
+  m = s.match(/^(\d+)/);
+  if (m) return m[1];
+  return s;
+}
+
 function ingestCommFile(matrix, kind, fileName) {
   if (!matrix || !matrix.length) throw new Error("Archivo vacio");
   const hdrRow = _reconFindHeaderRow(matrix);
@@ -3556,11 +3704,11 @@ function ingestCommFile(matrix, kind, fileName) {
     const especie = _reconNormCode(row[espIdx]);
     const qty = Math.abs(_reconParseNumber(row[qtyIdx]));
     if (!especie) continue;
-    let comm = "";
-    if (kind === "CV") comm = _normComitenteCV(rawComm);
-    else comm = String(rawComm == null ? "" : rawComm).trim();
+    // Normalizacion universal: extrae solo el numero del comitente
+    // (CV trae "11/170030", AUNE trae "[170030] Nombre" -> ambos -> "170030")
+    const comm = _normComitenteUniversal(rawComm);
     if (!comm) continue;
-    const settle = _isSettleAccount(comm) || (kind === "CV" && _isSettleAccount(String(rawComm).trim()));
+    const settle = _isSettleAccount(comm) || _isSettleAccount(String(rawComm == null ? "" : rawComm).trim());
     if (!out[especie]) out[especie] = {};
     if (out[especie][comm]) out[especie][comm].qty += qty;
     else out[especie][comm] = { qty: qty, isSettle: settle };
@@ -3580,10 +3728,12 @@ function ingestCommFile(matrix, kind, fileName) {
 
 async function loadCommFile(file, kind) {
   try {
+    if (!_isAllowedFile(file)) throw new Error("Extension no soportada (usar CSV, TXT, XLSX, XLSM)");
     const matrix = await readFileMatrix(file);
     ingestCommFile(matrix, kind, file.name);
+    notify("<b>Comitente " + kind + " cargado:</b> " + file.name, "success");
   } catch (e) {
-    alert("Error cargando comitente " + kind + ": " + e.message);
+    notify("<b>Error cargando comitente " + kind + ":</b> " + e.message, "error");
   }
 }
 
@@ -3725,6 +3875,91 @@ function renderCommRecon() {
   }).join("");
 }
 
+/* =========================================================================
+   GENERACION DE ARCHIVO SI2 - Settlement Instructions BYMA
+   Toma las sugerencias de movimiento por especie y arma el archivo
+   con el formato exacto del SI2: 17 columnas separadas por ;, lineas con CRLF
+   ========================================================================= */
+function _formatSI2Account(comm) {
+  // Settle accounts ya vienen con formato completo (70011/10000, 80011/...)
+  if (_isSettleAccount(comm)) return comm;
+  // Comitentes regulares: prefijo "11/" del operador
+  return "11/" + comm;
+}
+
+function generateSI2() {
+  if (!COMM_CV || !COMM_BO) {
+    notify("Cargá primero los archivos por comitente (Caja y AUNE).", "warning");
+    return;
+  }
+  const cv = COMM_CV, bo = COMM_BO;
+  const includeSettle = (document.getElementById("commIncludeSettle") || {}).checked;
+  const allEsp = new Set();
+  Object.keys(cv).forEach(function(k) { allEsp.add(k); });
+  Object.keys(bo).forEach(function(k) { allEsp.add(k); });
+
+  const allMoves = [];
+  allEsp.forEach(function(esp) {
+    const cvByComm = cv[esp] || {};
+    const boByComm = bo[esp] || {};
+    const allComm = new Set();
+    Object.keys(cvByComm).forEach(function(c) { allComm.add(c); });
+    Object.keys(boByComm).forEach(function(c) { allComm.add(c); });
+    const rows = [];
+    allComm.forEach(function(comm) {
+      const cQ = cvByComm[comm] ? cvByComm[comm].qty : 0;
+      const bQ = boByComm[comm] ? boByComm[comm].qty : 0;
+      const isSettle = (cvByComm[comm] && cvByComm[comm].isSettle) || (boByComm[comm] && boByComm[comm].isSettle) || _isSettleAccount(comm);
+      const diff = bQ - cQ;
+      rows.push({ comm: comm, cQ: cQ, bQ: bQ, diff: diff, isSettle: isSettle });
+    });
+    const moves = _suggestMoves(rows, includeSettle);
+    moves.forEach(function(m) {
+      allMoves.push({ esp: esp, from: m.from, to: m.to, qty: m.qty, fromSettle: m.fromSettle });
+    });
+  });
+
+  if (!allMoves.length) {
+    notify("No hay movimientos para generar &mdash; todo conciliado o falta data.", "info");
+    return;
+  }
+
+  const today = new Date();
+  const yyyymmdd = today.getFullYear() + String(today.getMonth()+1).padStart(2,"0") + String(today.getDate()).padStart(2,"0");
+
+  const headers = [
+    "InstructingParty","SettlementParty","SecuritiesAccount","Instrument","InstrumentIdentifierType",
+    "CSDOfCounterparty","SettlementCounterparty","SecuritiesAccountOfCounterparty","InstructionReference",
+    "Instrument(MovementOfSecurities)","Quantity","QuantityType","TransactionType","SettlementMethod",
+    "TradeDate","IntendedSettlementDate","PaymentType"
+  ];
+
+  const lines = [headers.join(";")];
+  allMoves.forEach(function(m, idx) {
+    const seq = String(idx + 1).padStart(6, "0");
+    const ref = "H" + yyyymmdd + seq;
+    const fromAcc = _formatSI2Account(m.from);
+    const toAcc = _formatSI2Account(m.to);
+    const qty = (Math.abs(m.qty)).toFixed(7);
+    lines.push([
+      "11", "11", fromAcc, m.esp, "LOCAL_CODE",
+      "CVSA", "11", toAcc, ref,
+      "DELIVER", qty, "", "TRAD", "RTGS",
+      yyyymmdd, yyyymmdd, "NOTHING"
+    ].join(";"));
+  });
+
+  // Mismo formato del original: CRLF al final de cada linea
+  const content = lines.join("\r\n") + "\r\n";
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "SI2_conciliacion_" + yyyymmdd + ".si2";
+  document.body.appendChild(a); a.click();
+  setTimeout(function() { try { URL.revokeObjectURL(a.href); a.remove(); } catch(e){} }, 100);
+  notify("<b>SI2 generado:</b> " + allMoves.length + " transferencias en SI2_conciliacion_" + yyyymmdd + ".si2", "success");
+}
+
 function setupCommReconDropzones() {
   const slots = [
     { dzId: "dropzoneCommCV", inpId: "fileInputCommCV", kind: "CV" },
@@ -3786,6 +4021,10 @@ function setupCommReconDropzones() {
     document.body.appendChild(a); a.click();
     setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 100);
   });
+  const btnSI2 = document.getElementById("btnGenSI2");
+  if (btnSI2) btnSI2.addEventListener("click", function() {
+    try { generateSI2(); } catch(e) { notify("<b>Error generando SI2:</b> " + e.message, "error"); }
+  });
 }
 
 /* =========================================================================
@@ -3834,6 +4073,24 @@ function bootstrap() {
   setupReconDropzones();
   setupCommReconDropzones();
   setupViewTabs();
+
+  // Boton "Limpiar Conciliacion" - resetea todos los archivos cargados de la pestana
+  const btnResetRecon = document.getElementById("btnResetRecon");
+  if (btnResetRecon) btnResetRecon.addEventListener("click", function() {
+    if (!confirm("Esta seguro? Se limpiaran TODOS los archivos cargados en Conciliacion (CV, AUNE, Clearing, Gar.AUNE, comitente).")) return;
+    RECON_CV = null; RECON_BO = null; RECON_GAR = null; RECON_GARBO = null;
+    COMM_CV = null; COMM_BO = null;
+    ["dropzoneCV","dropzoneBO","dropzoneGAR","dropzoneGARBO","dropzoneCommCV","dropzoneCommBO"].forEach(function(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove("loaded");
+    });
+    [["fileNameCV","Sin cargar"],["fileNameBO","Sin cargar"],["fileNameGAR","Sin cargar"],["fileNameGARBO","Sin cargar"],["fileNameCommCV","Sin cargar"],["fileNameCommBO","Sin cargar"]].forEach(function(pair) {
+      const el = document.getElementById(pair[0]);
+      if (el) el.textContent = pair[1];
+    });
+    try { renderRecon(); } catch(e){}
+    notify("<b>Conciliacion limpia.</b> Pod&eacute;s cargar archivos de cero.", "info");
+  });
 
   document.querySelectorAll("#manualBody input").forEach(function(inp) {
     inp.addEventListener("input", function() { try { render(); } catch(e){} });
@@ -3893,9 +4150,9 @@ function bootstrap() {
     try { renderObli(); } catch(e){}
   });
   const saveBtn = document.getElementById("saveLocalBtn");
-  if (saveBtn) saveBtn.addEventListener("click", function() { try { saveManualLocal(); } catch(e){ alert("No se pudo guardar: " + e.message); } });
+  if (saveBtn) saveBtn.addEventListener("click", function() { try { saveManualLocal(); } catch(e){ notify("<b>No se pudo guardar:</b> " + e.message, "error"); } });
   const loadBtn = document.getElementById("loadLocalBtn");
-  if (loadBtn) loadBtn.addEventListener("click", function() { try { loadManualLocal(); } catch(e){ alert("No se pudo cargar: " + e.message); } });
+  if (loadBtn) loadBtn.addEventListener("click", function() { try { loadManualLocal(); } catch(e){ notify("<b>No se pudo cargar:</b> " + e.message, "error"); } });
   const clearBtn = document.getElementById("clearManualBtn");
   if (clearBtn) clearBtn.addEventListener("click", function() { try { clearManual(); } catch(e){} });
 
